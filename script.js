@@ -119,6 +119,19 @@ class FileSystemNode extends Node {
         this.nextData = null;
         this.prevData = null;
     }
+
+    //commandのcopyでdeep copy用
+    copy(fileSystemNode) {
+        this.name = fileSystemNode.name;
+        this.type = fileSystemNode.type;
+        this.date = fileSystemNode.date;
+        this.folderData = fileSystemNode.folderData;
+        this.fileContent = fileSystemNode.fileContent;
+        this.path = null;
+        //横の連結は削除する
+        this.nextData = null;
+        this.prevData = null;
+    }
 }
 
 /* 
@@ -135,7 +148,7 @@ class FileSystem extends DoublyLinkedList {
         this.curr = this.head;
     }
 
-    /*boolean
+    /*  return boolean
         pathが有効か
         NOTE:commandが「cd」のみ .. が有効 →　各commandのvalidatorでメソッド追加
     */
@@ -211,9 +224,7 @@ class FileSystem extends DoublyLinkedList {
         return this.curr.path;
     }
 
-    /*
-        適用コマンド: mkdir touch 
-    */
+    // 適用コマンド: mkdir touch 
     static mkdirOrTouch(path, type) {
         //{'dir': <String>, 'dirOrFileName': <String>}
         let dirAndDirName = this.getDirAndDirOrFileName(path);
@@ -281,10 +292,12 @@ class FileSystem extends DoublyLinkedList {
        directoryとfileまたはdirの名前を取得する。
     */
     static getDirAndDirOrFileName(path) {
+        let firstChar = path.substring(0, 1);
         let dir = path.trim().split("/");
         let dirOrFileName = dir.pop(); //file名を切り出す
         dir = dir.join("/");
-        return { 'dir': dir, 'dirOrFileName': dirOrFileName };
+        if (firstChar == "/") dir = "/" + dir; //先頭に"/"がある場合消えるため
+        return { "dir": dir, 'dirOrFileName': dirOrFileName };
     }
 
     /* return {'dir': <String>, 'dirOrFileName': <String>, 'type' : <string>}
@@ -296,11 +309,11 @@ class FileSystem extends DoublyLinkedList {
     static getDirAndDirOrFileNameAndType(path) {
         let dir = path.trim().split("/");
         let dirOrFileName = dir.pop(); //file名を切り出す
-        let type = (path.slice(-1) == "/") ? 'dir' : 'file';
-        console.log(path.slice(-1))
-        if (type == 'dir') dirOrFileName = dir.pop();
+        let type = (path.slice(-1) == "/") ? "dir" : "file";
+
+        if (type == "dir") dirOrFileName = dir.pop();
         dir = dir.join("/");
-        return { 'dir': dir, 'dirOrFileName': dirOrFileName, 'type': type };
+        return { "dir": dir, 'dirOrFileName': dirOrFileName, 'type': type };
     }
 
     /* return   {'dir': <Array>, 'iterator': <FileSystem>}
@@ -310,10 +323,12 @@ class FileSystem extends DoublyLinkedList {
        探索用のdir形式に変更
     */
     static absoleteOrRelativePath(path) {
-        let firstChar = path[0];
+        let firstChar = path.substring(0, 1);
         let dir = path.split("/");
-        if (firstChar == "/") dir = path.substring(1).split("/"); //絶対パスの場合先頭に「/」　→　削除
-        if (firstChar == "/") return { 'dir': dir, 'parent': this.head };
+        if (firstChar == "/") {
+            dir = path.substring(1).split("/"); //絶対パスの場合先頭に「/」　→　削除
+            return { 'dir': dir, 'parent': this.head };
+        }
         else return { 'dir': dir, 'parent': this.curr };
     }
 }
@@ -339,8 +354,8 @@ class CLIValidator {
     }
 
     /* 
-         一般的なvalidatorをする
-          -CLIがsupportしているコマンドであるか(arrayの先頭)
+        一般的なvalidatorをする
+        -CLIがsupportしているコマンドであるか(arrayの先頭)
     */
     static universal(parsedArray) {
         if (!this.isSupportedCommand(parsedArray)) return { 'isValid': false, 'errorMessage': `"${parsedArray[0]}" is not supported.` };
@@ -356,7 +371,7 @@ class CLIValidator {
     static arguments(command, args) {
         const zeroArgsCommand = ['pwd'];
         const singleArgsCommand = ['touch', 'mkdir', 'cd', 'pwd', 'print', 'rm'];
-        const doubleArgsCommand = ['setContent', 'mv'];
+        const doubleArgsCommand = ['setContent', 'mv', 'copy'];
         const multipleArgsCommand = ['ls'];
         let response = null;
 
@@ -381,7 +396,6 @@ class CLIValidator {
     }
     //argが2の場合
     static doubleArg(command, args) {
-        console.log(args);
         if (command == "setContent") {
             //setContentの場合、contentに空白が入る可能性があるため、argが0の場合のみvalidate
             if (args.length == 0) return { 'isValid': false, 'errorMessage': `invalid number of arguments. ${command} needs two arguments` };
@@ -414,6 +428,7 @@ class CLIValidator {
         else if (command == "print") response = this.print(args);
         else if (command == "rm") response = this.rm(args);
         else if (command == "mv") response = this.mv(args);
+        else if (command == "copy") response = this.copy(args);
         return response;
     }
 
@@ -525,6 +540,10 @@ class CLIValidator {
         return this.dirOrFileValidateHelper(args);
     }
 
+    static copy(args) {
+        return this.dirOrFileValidateHelper(args);
+    }
+
     /* 
         setContent print rmで使用
         setContent [filePath] content : filePathのみvalidateする
@@ -538,12 +557,14 @@ class CLIValidator {
         let dirAndDirName = FileSystem.getDirAndDirOrFileName(args[0]);
         let dir = dirAndDirName['dir'];
         let fileName = dirAndDirName['dirOrFileName'];
+
         // 　invalidなpathの場合エラー
-        if (!FileSystem.isValidPath(dir)) return { 'isValid': false, 'errorMessage': `invalid directory` };
+        if (!FileSystem.isValidPath(dir)) return { 'isValid': false, 'errorMessage': `No such file or directory` };
         // directory先に同じデータがある場合エラー
         let pathAndStartNode = FileSystem.absoleteOrRelativePath(dir);
         let iterator = FileSystem.route(pathAndStartNode);
-        if (FileSystem.findDirOrFile(iterator.folderData, fileName, 'file') == null) return { 'isValid': false, 'errorMessage': `No such file` };
+        if (FileSystem.findDirOrFile(iterator.folderData, fileName, "file") == null) return { 'isValid': false, 'errorMessage': `No such file` };
+
         return { 'isValid': true, 'errorMessage': '' };
     }
 
@@ -574,7 +595,7 @@ class CLIValidator {
         // directory先に同じデータがある場合エラー
         let pathAndStartNodeTo = FileSystem.absoleteOrRelativePath(args[1]);
         let iteratorTo = FileSystem.route(pathAndStartNodeTo);
-        if (FileSystem.findDirOrFile(iteratorTo.folderData, dirOrFileName, type) != null) return { 'isValid': false, 'errorMessage': `cannot move "${dirOrFileName}" : already exists` };
+        if (FileSystem.findDirOrFile(iteratorTo.folderData, dirOrFileName, type) != null) return { 'isValid': false, 'errorMessage': `${dirOrFileName} already exists` };
 
         return { 'isValid': true, 'errorMessage': '' };
     }
@@ -587,12 +608,10 @@ class CLIValidator {
     }
 }
 
-/*
-commandLineの操作を管理
-*/
+//commandLineの操作を管理
 class CLI {
     //supportしているコマンド
-    static commands = ['touch', 'mkdir', 'ls', 'cd', 'pwd', 'print', 'setContent', 'rm', 'mv'];
+    static commands = ['touch', 'mkdir', 'ls', 'cd', 'pwd', 'print', 'setContent', 'rm', 'mv', 'copy'];
 
     /* return String
        supportしているコマンドをexecuteする 
@@ -608,19 +627,16 @@ class CLI {
         else if (command == "setContent") result = this.setContent(args); //argsは2個 (fileのcontentに空白がある場合を考慮)
         else if (command == "rm") result = this.rm(args[0]);
         else if (command == "mv") result = this.mv(args);
+        else if (command == "copy") result = this.copy(args);
         return result;
     }
 
-    /*
-        使用できるコマンドをリストで返す。
-    */
+    //使用できるコマンドをリストで返す。
     static commandList() {
         return this.commands.join(" / ");
     }
 
-    /*
-        inputからコマンド解析
-    */
+    //inputからコマンド解析
     static parse(inputValue) {
         return inputValue.trim().split(" ");
     }
@@ -677,9 +693,7 @@ class CLI {
         return fileList;
     }
 
-    /*
-        pwd []: // 現在の作業ディレクトリのパスを出力します。
-    */
+    //pwd []: 現在の作業ディレクトリのパスを出力します。
     static pwd() {
         return FileSystem.getCurrPath();
     }
@@ -703,13 +717,12 @@ class CLI {
         setContent [filePath] [content]: // filepathに存在するfileにcontentを書きこむ 
         NOTE : filePathの最後(/)が、file
     */
-
     static setContent(args) {
         //  {'dir': <String>, 'dirOrFileName': <String>}
         let dirAndDirName = FileSystem.getDirAndDirOrFileName(args[0]);
         let dir = dirAndDirName['dir'];
         let fileName = dirAndDirName['dirOrFileName'];
-        const content = args.slice(1).join("");
+        const content = args.slice(1).join(" ");
         let pathAndStartNode = FileSystem.absoleteOrRelativePath(dir);
         let iterator = FileSystem.route(pathAndStartNode);
         let file = FileSystem.findDirOrFile(iterator.folderData, fileName, 'file');
@@ -749,7 +762,6 @@ class CLI {
         //pathからtypeを取得する。
         let type = dirAndDirNameAndType['type'];
 
-        // directory先に同じデータがある場合エラー
         let pathAndStartNodeFrom = FileSystem.absoleteOrRelativePath(dirFrom);
         let iteratorFrom = FileSystem.route(pathAndStartNodeFrom);
         let dirOrFile = FileSystem.findDirOrFile(iteratorFrom.folderData, dirOrFileName, type);
@@ -760,11 +772,42 @@ class CLI {
 
         // 元のfolderDataから削除し、新しいfolderDataに入れる 
         let removedDirorFile = FileSystem.remove(iteratorFrom.folderData, dirOrFile);
-        console.log(removedDirorFile.nextData);
+
         iteratorTo.folderData.append(removedDirorFile);
         removedDirorFile.prev = iteratorTo;
         //pathをつなげる
         removedDirorFile.path = iteratorTo.path + '/' + removedDirorFile.name;
+        return "";
+    }
+
+    /*
+       copy [filePath] [filePath] (arg1 : from  arg2 : to)
+       移動後は、移動前から削除されない
+   */
+    static copy(args) {
+        //from(args[0])
+        //  {'dir': <String>, 'dirOrFileName': <String> , 'type' , <String>}
+        let dirAndDirNameAndType = FileSystem.getDirAndDirOrFileNameAndType(args[0]);
+        let dirFrom = dirAndDirNameAndType['dir'];
+        let dirOrFileName = dirAndDirNameAndType['dirOrFileName'];
+        //pathからtypeを取得する。
+        let type = dirAndDirNameAndType['type'];
+
+        let pathAndStartNodeFrom = FileSystem.absoleteOrRelativePath(dirFrom);
+        let iteratorFrom = FileSystem.route(pathAndStartNodeFrom);
+        let dirOrFile = FileSystem.findDirOrFile(iteratorFrom.folderData, dirOrFileName, type);
+        // to(args[1]) 
+        let pathAndStartNodeTo = FileSystem.absoleteOrRelativePath(args[1]);
+        let iteratorTo = FileSystem.route(pathAndStartNodeTo);
+
+        //deep copy
+        let copydirOrFile = new FileSystemNode(dirOrFileName, type);
+        copydirOrFile.copy(dirOrFile);
+        iteratorTo.folderData.append(copydirOrFile);
+
+        copydirOrFile.prev = iteratorTo;
+        //pathをつなげる
+        copydirOrFile.path = iteratorTo.path + '/' + copydirOrFile.name;
         return "";
     }
 }
@@ -784,7 +827,6 @@ class Render {
         this.supportedCommandList();
         this.CLITextInput.addEventListener("keyup", (event) => this.execute(event));
     }
-
 
     static supportedCommandList() {
         this.title.innerHTML += `<p>available commands : ${CLI.commandList()}</p>`;
