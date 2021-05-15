@@ -296,7 +296,7 @@ class FileSystem extends DoublyLinkedList {
         let dir = path.trim().split("/");
         let dirOrFileName = dir.pop(); //file名を切り出す
         dir = dir.join("/");
-        if (firstChar == "/") dir = "/" + dir; //先頭に"/"がある場合消えるため
+        if (firstChar == "/" && path == "/") dir = "/" + dir; //先頭に"/"があり、path = "/"の場合消えるため。
         return { "dir": dir, 'dirOrFileName': dirOrFileName };
     }
 
